@@ -2,13 +2,17 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/vmihailenco/msgpack"
 	"io"
 	"log"
 	"math"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 )
 
@@ -34,12 +38,34 @@ type Slot struct {
 	Script 	string	//脚本名称
 	Params  string	//脚本参数
 	CircleNum	int	//循环几圈后执行本slot内部的脚本
+	SerializeIndex   int     //序列化使用，表示为放在第几个Pear的下面，其他时候无效
 }
 
 //响应给客户端内容
 type Resp struct {
 	Flag  int	`json:"flag"`
 	Msg   string`json:"msg"`
+}
+
+//序列化存储的结构体
+type Serialize struct {
+	Slots  []Slot
+	CurrentIndex 	int
+}
+
+func (c *Circle) serialize() ([]byte, error){
+	slots := make([]Slot, 0)
+	for idx, pear := range c.Pears {
+		for _, slot := range pear.Slots {
+			slot.SerializeIndex = idx
+			slots = append(slots, *slot)
+		}
+	}
+	return json.Marshal(Serialize{Slots: slots, CurrentIndex:c.CurrentIdx})
+}
+
+func (c *Circle) Save() bool{
+	return true
 }
 
 func (c *Circle) Run() {
@@ -164,10 +190,29 @@ func pack(resp Resp) []byte {
 	return cnt
 }
 
+//守护进程运行
+func daemonMode() {
+	if os.Getpid() != 1 {
+		filePath, _ := filepath.Abs(os.Args[0])
+		args := append([]string{filePath}, os.Args[1:]... )
+		os.StartProcess(filePath, args, &os.ProcAttr{Files: []*os.File {os.Stdin, os.Stdout, os.Stderr}})
+		return
+	}
+}
+
 var circle *Circle
+var savePath *string
 
 func main(){
-	ls, err := net.Listen("tcp", "0.0.0.0:8787")
+	port := flag.String("port", "8787", "port which you want specified...")
+	daemon := flag.Bool("D", false, "run at daemon mode...")
+	savePath = flag.String("file", filepath.Dir(os.Args[0]), "save path")
+	flag.Parse()
+	fmt.Println(*savePath)
+	if *daemon {
+		daemonMode()
+	}
+	ls, err := net.Listen("tcp", "0.0.0.0:"+ *port)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -183,3 +228,4 @@ func main(){
 		go handleConn(conn)
 	}
 }
+
