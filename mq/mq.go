@@ -1,7 +1,10 @@
 package mq
 
 import (
+	"bufio"
 	"context"
+	"delay-message-queue/util"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -15,14 +18,16 @@ var (
 	rwMutex sync.RWMutex
 )
 
-type CallbackFunc func(job *Job)
+type CallbackFunc func(*Job, *util.Log)
 
-type ResolveTcpConnFunc func(conn *net.TCPConn)
+type ResolveTcpConnFunc func(*net.TCPConn)
 
 type Node struct {
 	Id int32
 	Next *Node
 	Jobs map[int][]*Job
+	CirCleSlotNum int
+	Log *util.Log
 }
 
 type Job struct {
@@ -34,9 +39,21 @@ type Job struct {
 	Callback CallbackFunc
 }
 
-func NewCirCleMq(len int) *Node{
+//队列添加的请求消息体
+type Msg struct {
+	Type string
+	Script string
+	Params []interface{}
+	Interval int32
+}
+
+func NewCirCleMq(len int, logFilePath string) (*Node, error){
 	jobChan = make(chan *Job)
-	node := &Node{Id:1, Next:new(Node), Jobs: make(map[int][]*Job, 0)}
+	log, err := util.NewLogs(logFilePath)
+	if err != nil {
+		return nil, err
+	}
+	node := &Node{Id:1, Next:new(Node), Jobs: make(map[int][]*Job,0), CirCleSlotNum: len, Log: log}
 	current := node
 	for i := 1; i <= len; i++ {
 		current.Id = int32(i)
@@ -47,11 +64,11 @@ func NewCirCleMq(len int) *Node{
 			current = current.Next
 		}
 	}
-	return node
+	return node, nil
 }
 
-func (n *Node) Run(port int, resolveTcpConnFunc ResolveTcpConnFunc){
-	go n.serve(port, resolveTcpConnFunc)
+func (n *Node) Run(port int){
+	go n.serve(port, n.connResolve)
 	_currentNode =  n
 	for {
 		go n.consumeJobs(_currentNode.Id)
@@ -97,7 +114,7 @@ func (n *Node) consumeJobs(id int32) {
 				}
 			} else {
 				for _, job := range _jobs {
-					go job.Callback(job)
+					go job.Callback(job, n.Log)
 				}
 			}
 		}
@@ -106,8 +123,6 @@ func (n *Node) consumeJobs(id int32) {
 		break
 	}
 }
-
-
 
 func (n *Node) push2Node(ctx context.Context, id int32) {
 	select {
@@ -138,4 +153,55 @@ func (n *Node) push2Node(ctx context.Context, id int32) {
 		return
 	}
 
+}
+
+func (n *Node) connResolve(conn *net.TCPConn) {
+	var cb CallbackFunc
+	defer conn.Close()
+	fmt.Println(conn.RemoteAddr().String())
+	reader := bufio.NewReader(conn)
+	for {
+		msg, err := reader.ReadBytes('\n')
+		if err != nil {
+			fmt.Println(err)
+			conn.Write(n.connResponseFail())
+			continue
+		}
+		body := Msg{}
+		if err := json.Unmarshal(msg, &body); err != nil {
+			fmt.Println(err)
+			conn.Write(n.connResponseFail())
+			continue
+		}
+		if body.Type == "" {
+			conn.Write(n.connResponseFail())
+			continue
+		}
+		circleNum := int(body.Interval) / n.CirCleSlotNum
+		switch body.Type {
+		case "cmd":
+			cb = jobCmdCallback
+			break
+		case "api":
+			cb = jobApiCallback
+		}
+		job := &Job{
+			Circles: circleNum,
+			PlusNodeNum: int(body.Interval) - circleNum * n.CirCleSlotNum,
+			Type:    body.Type,
+			Script:  body.Script,
+			Params:  body.Params,
+			Callback: cb,
+		}
+		n.PushJob(job)
+		conn.Write(n.connResponseSucc())
+	}
+}
+
+func (n *Node) connResponseFail() []byte{
+	return []byte(`{"code":400, "msg": "fail"}`)
+}
+
+func (n *Node) connResponseSucc() []byte{
+	return []byte(`{"code":200, "msg": "succ"}`)
 }
