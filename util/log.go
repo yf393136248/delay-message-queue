@@ -5,15 +5,14 @@ import (
 	"os"
 )
 
-
 type Log struct {
-	FilePath string
+	FilePath    string
 	FileHandler *os.File
 	*log.Logger
 }
 
 func NewLogs(filePath string) (*Log, error) {
-	fp, err := os.OpenFile(filePath, os.O_APPEND | os.O_RDWR | os.O_CREATE, 0755)
+	fp, err := os.OpenFile(filePath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0755)
 	if err != nil {
 		return nil, err
 	}

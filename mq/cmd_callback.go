@@ -27,5 +27,5 @@ func jobCmdCallback(job *Job, log *util.Log) {
 		log.Debug("脚本运行错误，错误原因：" + err.Error())
 		return
 	}
-	log.Debug("脚本运行完成，输出内容："+ out.String())
+	log.Debug("脚本运行完成，输出内容：" + out.String())
 }
