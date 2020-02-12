@@ -11,13 +11,12 @@ const (
 )
 
 var (
-	circleMq *mq.Node
+	circleMq      *mq.Node
 	circleSlotNum int
-	tcpPort int
+	tcpPort       int
 )
 
-
-func main(){
+func main() {
 	flag.IntVar(&circleSlotNum, "slot", 60, "需要创建卡槽的数量，1秒一个")
 	flag.IntVar(&tcpPort, "port", 8080, "tcp监听端口")
 	flag.Parse()

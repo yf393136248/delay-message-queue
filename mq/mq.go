@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	jobChan chan *Job
+	jobChan      chan *Job
 	_currentNode *Node
-	rwMutex sync.RWMutex
+	rwMutex      sync.RWMutex
 )
 
 type CallbackFunc func(*Job, *util.Log)
@@ -23,53 +23,53 @@ type CallbackFunc func(*Job, *util.Log)
 type ResolveTcpConnFunc func(*net.TCPConn)
 
 type Node struct {
-	Id int32
-	Next *Node
-	Jobs map[int][]*Job
+	Id            int32
+	Next          *Node
+	Jobs          map[int][]*Job
 	CirCleSlotNum int
-	Log *util.Log
+	Log           *util.Log
 }
 
 type Job struct {
-	Circles int
+	Circles     int
 	PlusNodeNum int
-	Type string
-	Script string
-	Params []interface{}
-	Callback CallbackFunc
+	Type        string
+	Script      string
+	Params      []interface{}
+	Callback    CallbackFunc
 }
 
 //队列添加的请求消息体
 type Msg struct {
-	Type string
-	Script string
-	Params []interface{}
+	Type     string
+	Script   string
+	Params   []interface{}
 	Interval int32
 }
 
-func NewCirCleMq(len int, logFilePath string) (*Node, error){
+func NewCirCleMq(len int, logFilePath string) (*Node, error) {
 	jobChan = make(chan *Job)
 	log, err := util.NewLogs(logFilePath)
 	if err != nil {
 		return nil, err
 	}
-	node := &Node{Id:1, Next:new(Node), Jobs: make(map[int][]*Job,0), CirCleSlotNum: len, Log: log}
+	node := &Node{Id: 1, Next: new(Node), Jobs: make(map[int][]*Job, 0), CirCleSlotNum: len, Log: log}
 	current := node
 	for i := 1; i <= len; i++ {
 		current.Id = int32(i)
 		if i == len {
 			current.Next = node
-		}else{
-			current.Next = &Node{Id:0, Jobs: make(map[int][]*Job, 0)}
+		} else {
+			current.Next = &Node{Id: 0, Jobs: make(map[int][]*Job, 0)}
 			current = current.Next
 		}
 	}
 	return node, nil
 }
 
-func (n *Node) Run(port int){
+func (n *Node) Run(port int) {
 	go n.serve(port, n.connResolve)
-	_currentNode =  n
+	_currentNode = n
 	for {
 		go n.consumeJobs(_currentNode.Id)
 		time.Sleep(time.Second * 1)
@@ -78,7 +78,7 @@ func (n *Node) Run(port int){
 }
 
 func (n *Node) serve(port int, resolveTcpConnFunc ResolveTcpConnFunc) {
-	tcpAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:" + strconv.Itoa(port))
+	tcpAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	tcpListener, _ := net.ListenTCP("tcp", tcpAddr)
 	defer tcpListener.Close()
 	for {
@@ -89,7 +89,6 @@ func (n *Node) serve(port int, resolveTcpConnFunc ResolveTcpConnFunc) {
 		go resolveTcpConnFunc(tcpConn)
 	}
 }
-
 
 func (n *Node) PushJob(job *Job) {
 	jobChan <- job
@@ -118,7 +117,7 @@ func (n *Node) consumeJobs(id int32) {
 				}
 			}
 		}
-		ctx, _ := context.WithTimeout(context.Background(), time.Second * 1)
+		ctx, _ := context.WithTimeout(context.Background(), time.Second*1)
 		n.push2Node(ctx, id)
 		break
 	}
@@ -126,7 +125,7 @@ func (n *Node) consumeJobs(id int32) {
 
 func (n *Node) push2Node(ctx context.Context, id int32) {
 	select {
-	case job := <- jobChan:
+	case job := <-jobChan:
 		_node := n
 		for {
 			if _node.Id != id {
@@ -149,7 +148,7 @@ func (n *Node) push2Node(ctx context.Context, id int32) {
 			}
 			break
 		}
-	case <- ctx.Done():
+	case <-ctx.Done():
 		return
 	}
 
@@ -186,22 +185,22 @@ func (n *Node) connResolve(conn *net.TCPConn) {
 			cb = jobApiCallback
 		}
 		job := &Job{
-			Circles: circleNum,
-			PlusNodeNum: int(body.Interval) - circleNum * n.CirCleSlotNum,
-			Type:    body.Type,
-			Script:  body.Script,
-			Params:  body.Params,
-			Callback: cb,
+			Circles:     circleNum,
+			PlusNodeNum: int(body.Interval) - circleNum*n.CirCleSlotNum,
+			Type:        body.Type,
+			Script:      body.Script,
+			Params:      body.Params,
+			Callback:    cb,
 		}
 		n.PushJob(job)
 		conn.Write(n.connResponseSucc())
 	}
 }
 
-func (n *Node) connResponseFail() []byte{
+func (n *Node) connResponseFail() []byte {
 	return []byte(`{"code":400, "msg": "fail"}`)
 }
 
-func (n *Node) connResponseSucc() []byte{
+func (n *Node) connResponseSucc() []byte {
 	return []byte(`{"code":200, "msg": "succ"}`)
 }
