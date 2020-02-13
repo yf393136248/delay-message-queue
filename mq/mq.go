@@ -6,6 +6,7 @@ import (
 	"delay-message-queue/util"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -161,10 +162,14 @@ func (n *Node) connResolve(conn *net.TCPConn) {
 	reader := bufio.NewReader(conn)
 	for {
 		msg, err := reader.ReadBytes('\n')
-		if err != nil {
+		if err != nil || err == io.EOF{
+			if err == io.EOF {
+				n.Log.Debug("客户端断开连接")
+				break
+			}
 			fmt.Println(err)
 			conn.Write(n.connResponseFail())
-			continue
+			break
 		}
 		body := Msg{}
 		if err := json.Unmarshal(msg, &body); err != nil {

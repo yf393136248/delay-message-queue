@@ -2,3 +2,4 @@
 [debug] err cnt [job api call resp: [200] []]
 [debug] err cnt [脚本运行错误，错误原因：fork/exec http://www.baidu.com: no such file or directory]
 [debug] err cnt [job api call resp: [200] []]
+[debug] err cnt [客户端断开连接]
