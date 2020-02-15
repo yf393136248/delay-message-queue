@@ -16,7 +16,7 @@ func NewLogs(filePath string) (*Log, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger := log.New(fp, "", 0)
+	logger	:= log.New(fp, "", log.LstdFlags|log.Lshortfile)
 	return &Log{filePath, fp, logger}, nil
 }
 

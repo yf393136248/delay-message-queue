@@ -1,17 +1,30 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
-	"runtime/debug"
+	"sync"
 )
+var wg sync.WaitGroup
+
+
+type A struct {
+	B string
+}
 
 func main() {
-	var arr = [5]int{1,2,3,4,5}
-	changeArr(&arr)
-	fmt.Println(arr)
+	var res bytes.Buffer
+	encoder := gob.NewEncoder(&res)
+	a := &A{"haha"}
+	encoder.Encode(a)
+
+	decoder := gob.NewDecoder(&res)
+	_a := new(A)
+	if err := decoder.Decode(_a); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(_a)
 }
 
-func changeArr(arr *[5]int) {
-	arr[0] = 45
-	debug.PrintStack()
-}
+

@@ -2,12 +2,16 @@ package mq
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"delay-message-queue/util"
+	"encoding/gob"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -17,6 +21,9 @@ var (
 	jobChan      chan *Job
 	_currentNode *Node
 	rwMutex      sync.RWMutex
+	durableFile	 string
+	durableFileHandler *os.File
+	log           *util.Log
 )
 
 type CallbackFunc func(*Job, *util.Log)
@@ -28,7 +35,6 @@ type Node struct {
 	Next          *Node
 	Jobs          map[int][]*Job
 	CirCleSlotNum int
-	Log           *util.Log
 }
 
 type Job struct {
@@ -48,13 +54,32 @@ type Msg struct {
 	Interval int32
 }
 
+func init() {
+	if !flag.Parsed() {
+		flag.StringVar(&durableFile, "dbFile", "./data/mq.mqdb", "持久化存储数据文件")
+	}
+}
+
 func NewCirCleMq(len int, logFilePath string) (*Node, error) {
+	var (
+		n *Node
+		err error
+	)
+	if n, err = Load(); err == nil {
+		return n, err
+	}
 	jobChan = make(chan *Job)
-	log, err := util.NewLogs(logFilePath)
+	log, err = util.NewLogs(logFilePath)
 	if err != nil {
 		return nil, err
 	}
-	node := &Node{Id: 1, Next: new(Node), Jobs: make(map[int][]*Job, 0), CirCleSlotNum: len, Log: log}
+	durableFileHandler, _ = os.OpenFile(durableFile, os.O_RDWR | os.O_CREATE, 0755)
+	node := &Node{
+		Id: 1,
+		Next: new(Node),
+		Jobs: make(map[int][]*Job, 0),
+		CirCleSlotNum: len,
+	}
 	current := node
 	for i := 1; i <= len; i++ {
 		current.Id = int32(i)
@@ -66,6 +91,20 @@ func NewCirCleMq(len int, logFilePath string) (*Node, error) {
 		}
 	}
 	return node, nil
+}
+
+//save mq struct by time.Tick loop
+func (n *Node) SaveTick() {
+	go func() {
+		for {
+			select {
+			case <- time.Tick(time.Second * 2):
+				if err := Save(*n); err != nil {
+					log.Debug("aergaer" + err.Error())
+				}
+			}
+		}
+	}()
 }
 
 func (n *Node) Run(port int) {
@@ -114,7 +153,7 @@ func (n *Node) consumeJobs(id int32) {
 				}
 			} else {
 				for _, job := range _jobs {
-					go job.Callback(job, n.Log)
+					go job.Callback(job, log)
 				}
 			}
 		}
@@ -164,7 +203,7 @@ func (n *Node) connResolve(conn *net.TCPConn) {
 		msg, err := reader.ReadBytes('\n')
 		if err != nil || err == io.EOF{
 			if err == io.EOF {
-				n.Log.Debug("客户端断开连接")
+				log.Debug("客户端断开连接")
 				break
 			}
 			fmt.Println(err)
@@ -208,4 +247,39 @@ func (n *Node) connResponseFail() []byte {
 
 func (n *Node) connResponseSucc() []byte {
 	return []byte(`{"code":200, "msg": "succ"}`)
+}
+
+//Serialize the mq struct to local storage file
+func Save(n Node) error {
+	var data bytes.Buffer
+	encoder := gob.NewEncoder(&data)
+	if err := encoder.Encode(n); err != nil {
+		return err
+	}
+	if _, err := durableFileHandler.Write(data.Bytes()); err != nil {
+		return  err
+	}
+	return nil
+}
+
+//Load mq serialize struct from local storage file
+func Load() (*Node, error) {
+	var (
+		data bytes.Buffer
+		fileCnt []byte
+		n *Node
+	)
+	_, err := os.Stat(durableFile)
+	if err != nil {
+		return nil, err
+	}
+	n = new(Node)
+	fHandler, _ := os.OpenFile(durableFile, os.O_RDWR, 0755)
+	fHandler.Read(fileCnt)
+	data.Write(fileCnt)
+	decoder := gob.NewDecoder(&data)
+	if err := decoder.Decode(n); err != nil {
+		return nil, err
+	}
+	return n, nil
 }
